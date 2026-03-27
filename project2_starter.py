@@ -2,6 +2,9 @@
 # Your name: Lydia Wilkinson
 # Your student id: 8791224
 # Your email: wilkilyd
+
+# I used ai to help find minor errors in the code when something wouldn't run. 
+# This fits within my ai guidelines that I created for myseslf.
 # --- ARGUMENTS & EXPECTED RETURN VALUES PROVIDED --- #
 # --- SEE INSTRUCTIONS FOR FULL DETAILS ON METHOD IMPLEMENTATION --- #
 
@@ -85,11 +88,97 @@ def get_listing_details(listing_id) -> dict:
             }
         }
     """
-    # TODO: Implement checkout logic following the instructions
+   
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    file_path = os.path.join(base_dir, "html_files", f"listing_{listing_id}.html")
+ 
+    with open(file_path, "r", encoding="utf-8-sig") as f:
+        soup = BeautifulSoup(f, "html.parser")
+ 
+    # --- policy_number ---
+    policy_number = "Exempt"
+    full_text = soup.get_text(" ", strip=True)
+ 
+    # Search for explicit STR license number patterns in the page text
+    str_match = re.search(r'(20\d{2}-00\d{4}STR|STR-000\d{4})', full_text)
+    if str_match:
+        policy_number = str_match.group(1)
+    elif re.search(r'[Pp]ending', full_text):
+        policy_number = "Pending"
+    else:
+        # Look for policy number label near a text section
+        for tag in soup.find_all(string=re.compile(r'[Ll]icense|[Pp]olicy [Nn]umber|[Pp]ermit')):
+            parent = tag.parent
+            if parent:
+                nearby = parent.get_text(" ", strip=True)
+                str2 = re.search(r'(20\d{2}-00\d{4}STR|STR-000\d{4})', nearby)
+                if str2:
+                    policy_number = str2.group(1)
+                    break
+                if re.search(r'[Pp]ending', nearby):
+                    policy_number = "Pending"
+                    break
+ 
+    # --- host_type ---
+    host_type = "regular"
+    if re.search(r'[Ss]uperhost', full_text):
+        host_type = "Superhost"
+ 
+    # --- host_name ---
+    host_name = ""
+    # Look for "Hosted by <Name>" or "Co-hosts: <Name> And <Name>"
+    hosted_match = re.search(r'[Hh]osted by ([A-Z][a-zA-Z]+(?: [Aa]nd [A-Z][a-zA-Z]+)?)', full_text)
+    if hosted_match:
+        host_name = hosted_match.group(1)
+    else:
+        # Fallback: look for name tags near host section
+        host_section = soup.find(string=re.compile(r'[Hh]osted by'))
+        if host_section:
+            parent = host_section.parent
+            name_match = re.search(r'[Hh]osted by ([A-Z][a-zA-Z]+(?: [Aa]nd [A-Z][a-zA-Z]+)?)', parent.get_text())
+            if name_match:
+                host_name = name_match.group(1)
+ 
+    # --- room_type ---
+    # Find the subtitle/description text (usually a small tagline near the top)
+    subtitle_text = ""
+    for tag in soup.find_all(["h2", "div", "span"], class_=re.compile(r"f19g58op|subtitle|t1pkfbir|fb4nyux")):
+        subtitle_text = tag.get_text(" ", strip=True)
+        if subtitle_text:
+            break
+ 
+    if not subtitle_text:
+        # Try the page title or first h2
+        h2 = soup.find("h2")
+        if h2:
+            subtitle_text = h2.get_text(" ", strip=True)
+ 
+    if "Private" in subtitle_text:
+        room_type = "Private Room"
+    elif "Shared" in subtitle_text:
+        room_type = "Shared Room"
+    else:
+        room_type = "Entire Room"
+ 
+    # --- location_rating ---
+    location_rating = 0.0
+    # Look for "Location" followed by a rating like 4.9
+    loc_match = re.search(r'[Ll]ocation\D{0,20}?(\d\.\d)', full_text)
+    if loc_match:
+        location_rating = float(loc_match.group(1))
+ 
+    return {
+        listing_id: {
+            "policy_number": policy_number,
+            "host_type": host_type,
+            "host_name": host_name,
+            "room_type": room_type,
+            "location_rating": location_rating,
+        }
+    }
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
@@ -106,11 +195,27 @@ def create_listing_database(html_path) -> list[tuple]:
         list[tuple]: A list of tuples. Each tuple contains:
         (listing_title, listing_id, policy_number, host_type, host_name, room_type, location_rating)
     """
-    # TODO: Implement checkout logic following the instructions
+    
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    listings = load_listing_results(html_path)
+    database = []
+ 
+    for listing_title, listing_id in listings:
+        details = get_listing_details(listing_id)
+        info = details[listing_id]
+        database.append((
+            listing_title,
+            listing_id,
+            info["policy_number"],
+            info["host_type"],
+            info["host_name"],
+            info["room_type"],
+            info["location_rating"],
+        ))
+ 
+    return database
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
@@ -129,11 +234,20 @@ def output_csv(data, filename) -> None:
     Returns:
         None
     """
-    # TODO: Implement checkout logic following the instructions
+    
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    sorted_data = sorted(data, key=lambda x: x[6], reverse=True)
+ 
+    with open(filename, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Listing Title", "Listing ID", "Policy Number",
+            "Host Type", "Host Name", "Room Type", "Location Rating"
+        ])
+        for row in sorted_data:
+            writer.writerow(row)
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
