@@ -30,11 +30,37 @@ def load_listing_results(html_path) -> list[tuple]:
     Returns:
         list[tuple]: A list of tuples containing (listing_title, listing_id)
     """
-    # TODO: Implement checkout logic following the instructions
+    
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    with open(html_path, "r", encoding="utf-8-sig") as f:
+        soup = BeautifulSoup(f, "html.parser")
+ 
+    results = []
+ 
+    # Listing cards have an itemprop="url" with href containing /rooms/<id>
+    for tag in soup.find_all("a", href=re.compile(r"/rooms/\d+")):
+        href = tag.get("href", "")
+        match = re.search(r"/rooms/(\d+)", href)
+        if not match:
+            continue
+        listing_id = match.group(1)
+ 
+        # Title is usually in an aria-label on the <a> tag, or in a nested element
+        title = tag.get("aria-label", "").strip()
+        if not title:
+            # Try to find a title text inside the tag
+            title_tag = tag.find(["div", "span"], class_=re.compile(r"t1jojoys|listing-title|t6mzqp7"))
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+ 
+        if title and listing_id:
+            entry = (title, listing_id)
+            if entry not in results:
+                results.append(entry)
+ 
+    return results
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
