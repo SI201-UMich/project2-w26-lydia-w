@@ -5,6 +5,7 @@
 
 # I used ai to help find minor errors in the code when something wouldn't run. 
 # This fits within my ai guidelines that I created for myseslf.
+
 # --- ARGUMENTS & EXPECTED RETURN VALUES PROVIDED --- #
 # --- SEE INSTRUCTIONS FOR FULL DETAILS ON METHOD IMPLEMENTATION --- #
 
@@ -266,11 +267,23 @@ def avg_location_rating_by_room_type(data) -> dict:
     Returns:
         dict: {room_type: average_location_rating}
     """
-    # TODO: Implement checkout logic following the instructions
+
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    totals = {}   # room_type -> [sum, count]
+ 
+    for row in data:
+        room_type = row[5]
+        location_rating = row[6]
+        if location_rating == 0.0:
+            continue
+        if room_type not in totals:
+            totals[room_type] = [0.0, 0]
+        totals[room_type][0] += location_rating
+        totals[room_type][1] += 1
+ 
+    return {rt: round(s / c, 10) for rt, (s, c) in totals.items()}
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
@@ -287,11 +300,27 @@ def validate_policy_numbers(data) -> list[str]:
     Returns:
         list[str]: A list of listing_id values whose policy numbers do NOT match the valid format
     """
-    # TODO: Implement checkout logic following the instructions
+    
     # ==============================
     # YOUR CODE STARTS HERE
     # ==============================
-    pass
+    # Valid formats:
+    #   20##-00####STR   (e.g. 2022-004088STR)
+    #   STR-000####      (e.g. STR-0005349)
+    valid_pattern = re.compile(r'^(20\d{2}-00\d{4}STR|STR-000\d{4})$')
+    invalid = []
+ 
+    for row in data:
+        listing_id = row[1]
+        policy_number = row[2]
+ 
+        if policy_number in ("Pending", "Exempt"):
+            continue
+ 
+        if not valid_pattern.match(policy_number):
+            invalid.append(listing_id)
+ 
+    return invalid
     # ==============================
     # YOUR CODE ENDS HERE
     # ==============================
