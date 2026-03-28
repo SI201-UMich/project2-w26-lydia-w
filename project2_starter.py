@@ -42,27 +42,28 @@ def load_listing_results(html_path) -> list[tuple]:
         soup = BeautifulSoup(f, "html.parser")
  
     results = []
+    seen_ids = set()
  
-    # Listing cards have an itemprop="url" with href containing /rooms/<id>
-    for tag in soup.find_all("a", href=re.compile(r"/rooms/\d+")):
-        href = tag.get("href", "")
-        match = re.search(r"/rooms/(\d+)", href)
-        if not match:
+    # Title is in <div class="t1jojoys" data-testid="listing-card-title">
+    # ID comes from target="listing_<id>" on the <a> tag in the same card
+    for title_div in soup.find_all("div", {"data-testid": "listing-card-title"}):
+        title = title_div.get_text(strip=True)
+ 
+        # Walk up to the card container, then find the <a> with target="listing_<id>"
+        card = title_div.find_parent("div", {"data-testid": "card-container"})
+        if not card:
             continue
-        listing_id = match.group(1)
  
-        # Title is usually in an aria-label on the <a> tag, or in a nested element
-        title = tag.get("aria-label", "").strip()
-        if not title:
-            # Try to find a title text inside the tag
-            title_tag = tag.find(["div", "span"], class_=re.compile(r"t1jojoys|listing-title|t6mzqp7"))
-            if title_tag:
-                title = title_tag.get_text(strip=True)
+        link = card.find("a", target=re.compile(r"^listing_\d+$"))
+        if not link:
+            continue
  
-        if title and listing_id:
-            entry = (title, listing_id)
-            if entry not in results:
-                results.append(entry)
+        listing_id = link.get("target", "").replace("listing_", "")
+        if not listing_id or listing_id in seen_ids:
+            continue
+ 
+        seen_ids.add(listing_id)
+        results.append((title, listing_id))
  
     return results
     # ==============================
@@ -101,75 +102,80 @@ def get_listing_details(listing_id) -> dict:
  
     # --- policy_number ---
     policy_number = "Exempt"
-    full_text = soup.get_text(" ", strip=True)
+    for li in soup.find_all("li", class_="f19phm7j"):
+        text = li.get_text(" ", strip=True)
+        if "Policy number" in text or "policy number" in text:
+            # Extract value after the label
+            span = li.find("span")
+            raw = span.get_text(strip=True) if span else ""
+            if not raw:
+                raw = text.replace("Policy number:", "").replace("Policy number", "").strip()
  
-    # Search for explicit STR license number patterns in the page text
-    str_match = re.search(r'(20\d{2}-00\d{4}STR|STR-000\d{4})', full_text)
-    if str_match:
-        policy_number = str_match.group(1)
-    elif re.search(r'[Pp]ending', full_text):
-        policy_number = "Pending"
-    else:
-        # Look for policy number label near a text section
-        for tag in soup.find_all(string=re.compile(r'[Ll]icense|[Pp]olicy [Nn]umber|[Pp]ermit')):
-            parent = tag.parent
-            if parent:
-                nearby = parent.get_text(" ", strip=True)
-                str2 = re.search(r'(20\d{2}-00\d{4}STR|STR-000\d{4})', nearby)
-                if str2:
-                    policy_number = str2.group(1)
-                    break
-                if re.search(r'[Pp]ending', nearby):
-                    policy_number = "Pending"
-                    break
+            if re.search(r'[Pp]ending', raw):
+                policy_number = "Pending"
+            elif re.search(r'[Ee]xempt', raw):
+                policy_number = "Exempt"
+            else:
+                policy_number = raw
+            break
  
     # --- host_type ---
     host_type = "regular"
-    if re.search(r'[Ss]uperhost', full_text):
+    if soup.find(string=re.compile(r'Superhost')):
         host_type = "Superhost"
  
     # --- host_name ---
     host_name = ""
-    # Look for "Hosted by <Name>" or "Co-hosts: <Name> And <Name>"
-    hosted_match = re.search(r'[Hh]osted by ([A-Z][a-zA-Z]+(?: [Aa]nd [A-Z][a-zA-Z]+)?)', full_text)
-    if hosted_match:
-        host_name = hosted_match.group(1)
-    else:
-        # Fallback: look for name tags near host section
-        host_section = soup.find(string=re.compile(r'[Hh]osted by'))
-        if host_section:
-            parent = host_section.parent
-            name_match = re.search(r'[Hh]osted by ([A-Z][a-zA-Z]+(?: [Aa]nd [A-Z][a-zA-Z]+)?)', parent.get_text())
-            if name_match:
-                host_name = name_match.group(1)
+    # "Entire loft hosted by Brian" or "Hosted by Brian" in overview h2
+    overview_h2 = soup.find("h2", class_="_14i3z6h")
+    if overview_h2:
+        h2_text = overview_h2.get_text(strip=True)
+        m = re.search(r'[Hh]osted by\s+(.+)', h2_text)
+        if m:
+            host_name = m.group(1).strip()
+ 
+    if not host_name:
+        # Fallback: look for "Hosted by" anywhere in text
+        m = re.search(r'[Hh]osted by\s+([A-Z][a-zA-Z]+(?: [Aa]nd [A-Z][a-zA-Z]+)?)', soup.get_text(" "))
+        if m:
+            host_name = m.group(1).strip()
  
     # --- room_type ---
-    # Find the subtitle/description text (usually a small tagline near the top)
-    subtitle_text = ""
-    for tag in soup.find_all(["h2", "div", "span"], class_=re.compile(r"f19g58op|subtitle|t1pkfbir|fb4nyux")):
-        subtitle_text = tag.get_text(" ", strip=True)
-        if subtitle_text:
-            break
- 
-    if not subtitle_text:
-        # Try the page title or first h2
-        h2 = soup.find("h2")
-        if h2:
-            subtitle_text = h2.get_text(" ", strip=True)
- 
-    if "Private" in subtitle_text:
-        room_type = "Private Room"
-    elif "Shared" in subtitle_text:
-        room_type = "Shared Room"
+    # The overview h2 says "Entire loft hosted by Brian" / "Private room hosted by ..."
+    room_type = "Entire Room"
+    if overview_h2:
+        h2_text = overview_h2.get_text(strip=True)
+        if "Private" in h2_text:
+            room_type = "Private Room"
+        elif "Shared" in h2_text:
+            room_type = "Shared Room"
+        else:
+            room_type = "Entire Room"
     else:
-        room_type = "Entire Room"
+        # fallback: check page title
+        title_tag = soup.find("title")
+        if title_tag:
+            t = title_tag.get_text()
+            if "Private" in t:
+                room_type = "Private Room"
+            elif "Shared" in t:
+                room_type = "Shared Room"
  
     # --- location_rating ---
     location_rating = 0.0
-    # Look for "Location" followed by a rating like 4.9
-    loc_match = re.search(r'[Ll]ocation\D{0,20}?(\d\.\d)', full_text)
-    if loc_match:
-        location_rating = float(loc_match.group(1))
+    # Find the Location label in the ratings section, then get the number next to it
+    for label_div in soup.find_all("div", class_="_y1ba89"):
+        if label_div.get_text(strip=True) == "Location":
+            # The rating is in the next sibling div, inside a span with class _4oybiu
+            parent = label_div.find_parent()
+            if parent:
+                rating_span = parent.find("span", class_="_4oybiu")
+                if rating_span:
+                    try:
+                        location_rating = float(rating_span.get_text(strip=True))
+                    except ValueError:
+                        pass
+            break
  
     return {
         listing_id: {
@@ -452,8 +458,10 @@ class TestCases(unittest.TestCase):
  
  
 def main():
-    detailed_data = create_listing_database(os.path.join("html_files", "search_results.html"))
-    output_csv(detailed_data, "airbnb_dataset.csv")
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    search_path = os.path.join(base_dir, "html_files", "search_results.html")
+    detailed_data = create_listing_database(search_path)
+    output_csv(detailed_data, os.path.join(base_dir, "airbnb_dataset.csv"))
 
 
 if __name__ == "__main__":
